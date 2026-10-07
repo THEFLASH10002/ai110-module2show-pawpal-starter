@@ -2,7 +2,7 @@
 
 ## 1. System Design
 
-**a. Core user actions**
+**Core user actions**
 
 Before drawing the UML, I identified the three core actions a pet owner must be able to
 perform in PawPal+:
@@ -24,15 +24,81 @@ perform in PawPal+:
    times. Alongside the plan it explains its reasoning, so the owner can see why the
    medication landed before the enrichment play and what got left out.
 
-**b. Initial design**
+**a. Initial design**
 
-- Briefly describe your initial UML design.
-- What classes did you include, and what responsibilities did you assign to each?
+My first UML draft had four classes, split so that each one owns a different kind of
+knowledge:
 
-**c. Design changes**
+- **`Owner`** holds the person and, more importantly, the constraints they bring to the
+  day: their name, how many minutes they actually have, which times are off limits, and
+  the list of pets they care for. I kept the constraints here rather than on the
+  scheduler because they describe the owner's life, not the algorithm.
 
-- Did your design change during implementation?
-- If yes, describe at least one change and why you made it.
+- **`Pet`** holds the animal's identity (name, species, breed) and owns its list of care
+  tasks. I deliberately hung tasks off the pet instead of the owner, because a walk
+  belongs to the dog, not to the person. If a second pet is added later, its tasks stay
+  cleanly separate with no rework.
+
+- **`CareTask`** is one unit of care: a title, how long it takes, how important it is, and
+  whether it repeats. It also knows two small things about itself, `priority_rank()` to
+  turn "high" into a sortable number and `fits_in()` to answer whether it still fits in
+  the time left. Keeping those on the task means the scheduler does not need to reach
+  inside it.
+
+- **`Scheduler`** is the only class with real behaviour. It reads the owner's constraints
+  and the pet's tasks, chooses which tasks make the cut, orders them, assigns clock times,
+  and explains the result. I made it a separate class rather than a method on `Owner`
+  because the scheduling strategy is the part most likely to change.
+
+I deliberately left out a separate plan class at this stage, so the scheduler simply kept
+`planned` and `skipped` lists of its own. My reasoning was that a fifth class with no
+behaviour of its own would be complexity I had not earned yet.
+
+**b. Design changes**
+
+Yes. After writing the skeleton in `pawpal_system.py` I asked an AI assistant to review
+it for missing relationships and logic bottlenecks. It raised six issues. I agreed with
+all six and made the following changes:
+
+1. **The scheduler now takes the owner, not a single pet.** `Scheduler.__init__` used to
+   accept one `Pet`, even though `Owner.pets` was a list. That meant two pets produced two
+   independent schedulers, each spending the owner's available minutes a second time and
+   each free to put something at 08:00. The scheduler now takes only the `Owner` and
+   gathers tasks across every pet, so one budget and one timeline cover the whole day.
+
+2. **I added a `PlannedItem` class after all, reversing my original decision.** This is
+   the change I thought hardest about. `CareTask` had a `scheduled_time` attribute, which
+   meant that generating a plan wrote into the pet's permanent task list. Re-running with
+   less time available left skipped tasks still carrying a stale timestamp from the
+   previous run. Separating the *definition* of a task from one *placement* of it fixes
+   that, and `PlannedItem` turned out to have real work to do: it carries the pet, the
+   start time, an `end_time()` method and the reason the task landed there. The fifth
+   class was earned after all.
+
+3. **Tasks now have a `task_id`.** `edit_task()` and `remove_task()` matched on title, but
+   "Feeding" happens twice a day. Matching on title would have edited whichever one came
+   first in the list.
+
+4. **`blocked_times: list[str]` became `blocked_windows: list[tuple[str, str]]`.** A
+   single string can only mark an instant, and being unavailable is a period with a start
+   and an end. The check also changed from `is_time_blocked(start_time)` to
+   `overlaps_blocked(start_time, duration_minutes)`, because the old version only looked at
+   where a task began, so a 60 minute walk starting at 11:30 would run straight through a
+   12:00 block without being noticed.
+
+5. **I split `generate_plan()` into four smaller methods**: `collect_tasks()`,
+   `sort_by_priority()`, `select_tasks()` and `assign_times()`. The original did all four
+   jobs at once, which meant I could not test "does it order by priority" without also
+   exercising time assignment. `generate_plan()` still exists and calls them in order, so
+   the UI has one method to call.
+
+6. **`explain_plan()` now takes the plan as an argument.** Before, it read
+   `self.planned` and `self.skipped`, so it quietly returned nothing useful unless
+   `generate_plan()` had already run. Passing the plan in makes that dependency visible in
+   the signature and leaves the scheduler stateless.
+
+I also updated `diagrams/uml_draft.mmd` to match, so the diagram and the skeleton do not
+drift apart before Phase 6.
 
 ---
 

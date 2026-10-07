@@ -1,14 +1,16 @@
 classDiagram
-    %% PawPal+ draft design (Phase 2). Revisit and update in Phase 6.
+    %% PawPal+ working diagram. Drafted in Phase 2, revised in Phase 3
+    %% after reviewing the skeleton. Revisit again in Phase 6.
 
     class Owner {
         +str name
         +int available_minutes
-        +list~str~ blocked_times
+        +list~tuple~ blocked_windows
         +list~Pet~ pets
         +add_pet(pet Pet) void
         +set_availability(minutes int) void
-        +is_time_blocked(start_time str) bool
+        +block_window(start str, end str) void
+        +overlaps_blocked(start str, duration int) bool
     }
 
     class Pet {
@@ -17,31 +19,41 @@ classDiagram
         +str breed
         +list~CareTask~ tasks
         +add_task(task CareTask) void
-        +edit_task(title str, **changes) bool
-        +remove_task(title str) bool
+        +edit_task(task_id str, **changes) bool
+        +remove_task(task_id str) bool
     }
 
     class CareTask {
+        +str task_id
         +str title
         +int duration_minutes
         +str priority
         +bool is_recurring
-        +str scheduled_time
         +priority_rank() int
         +fits_in(minutes_left int) bool
     }
 
+    class PlannedItem {
+        +CareTask task
+        +Pet pet
+        +str start_time
+        +str reason
+        +end_time() str
+    }
+
     class Scheduler {
         +Owner owner
-        +Pet pet
-        +list~CareTask~ planned
-        +list~CareTask~ skipped
-        +generate_plan(start_time str) list~CareTask~
-        +sort_by_priority(tasks list) list~CareTask~
-        +explain_plan() str
+        +collect_tasks() list~PlannedItem~
+        +sort_by_priority(items list) list~PlannedItem~
+        +select_tasks(items list) tuple
+        +assign_times(items list, start str) list~PlannedItem~
+        +generate_plan(start str) tuple
+        +explain_plan(planned list, skipped list) str
     }
 
     Owner "1" --> "*" Pet : cares for
     Pet "1" --> "*" CareTask : needs
-    Scheduler --> Owner : reads availability and preferences
-    Scheduler --> CareTask : selects, orders and time-stamps
+    Scheduler "1" --> "1" Owner : reads constraints and all pets
+    Scheduler ..> PlannedItem : produces
+    PlannedItem --> CareTask : wraps
+    PlannedItem --> Pet : belongs to
