@@ -1,0 +1,47 @@
+classDiagram
+    %% PawPal+ draft design (Phase 2). Revisit and update in Phase 6.
+
+    class Owner {
+        +str name
+        +int available_minutes
+        +list~str~ blocked_times
+        +list~Pet~ pets
+        +add_pet(pet Pet) void
+        +set_availability(minutes int) void
+        +is_time_blocked(start_time str) bool
+    }
+
+    class Pet {
+        +str name
+        +str species
+        +str breed
+        +list~CareTask~ tasks
+        +add_task(task CareTask) void
+        +edit_task(title str, **changes) bool
+        +remove_task(title str) bool
+    }
+
+    class CareTask {
+        +str title
+        +int duration_minutes
+        +str priority
+        +bool is_recurring
+        +str scheduled_time
+        +priority_rank() int
+        +fits_in(minutes_left int) bool
+    }
+
+    class Scheduler {
+        +Owner owner
+        +Pet pet
+        +list~CareTask~ planned
+        +list~CareTask~ skipped
+        +generate_plan(start_time str) list~CareTask~
+        +sort_by_priority(tasks list) list~CareTask~
+        +explain_plan() str
+    }
+
+    Owner "1" --> "*" Pet : cares for
+    Pet "1" --> "*" CareTask : needs
+    Scheduler --> Owner : reads availability and preferences
+    Scheduler --> CareTask : selects, orders and time-stamps
