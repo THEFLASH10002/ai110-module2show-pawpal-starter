@@ -121,15 +121,37 @@ The plan works around these blocked times: 12:00-13:00.
 
 ## 🧪 Testing PawPal+
 
-```bash
-# Run the full test suite:
-pytest
+Run the suite from the project root:
 
-# Run with coverage:
-pytest --cov
+```bash
+python -m pytest
 ```
 
-Sample test output:
+```bash
+# with coverage
+python -m pytest --cov
+```
+
+### What the tests cover
+
+29 tests in `tests/test_pawpal.py`, split between happy paths and edge cases.
+
+| Area | Behaviour verified |
+|---|---|
+| Task state | A new task starts pending; `mark_complete` flips it; adding a task grows the pet's list |
+| Data access | `Owner.all_tasks` reaches across every pet; `filter_tasks` narrows by pet, status and priority, and ignores case on the name |
+| Sorting | Tasks entered back to front come out in clock order, untimed ones last, and the order is stable when nothing has a time |
+| Priority | High priority is scheduled before low, and the shortest task breaks a tie |
+| Time budget | Work that no longer fits is skipped with a readable reason; a zero minute budget skips everything |
+| Recurrence | Completing a daily task queues tomorrow's and a weekly task next week's; a one-off queues nothing; rollover across month and year boundaries is correct |
+| Conflicts | Overlapping requested times produce a warning per clashing pair; touching tasks do not |
+| Blocked time | A task that would run into an unavailable window is pushed past it |
+| Day boundary | A task that cannot finish before the cutoff is deferred, not overrun |
+| Re-run safety | Generating a plan twice does not mutate the pet's own task objects |
+| Empty states | An owner with no pets, and a pet with no tasks, plan cleanly instead of raising |
+| Bad input | Zero durations, unknown priorities and backwards blocked windows raise; unknown task ids return False or None |
+
+### Sample test output
 
 ```
 ============================= test session starts =============================
@@ -137,27 +159,55 @@ platform win32 -- Python 3.12.0, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\kenne\Ap
 cachedir: .pytest_cache
 rootdir: ...
 plugins: anyio-4.13.0
-collecting ... collected 16 items
+collecting ... collected 29 items
 
-tests/test_pawpal.py::test_mark_complete_changes_status PASSED           [  6%]
-tests/test_pawpal.py::test_adding_task_increases_pet_task_count PASSED   [ 12%]
-tests/test_pawpal.py::test_owner_collects_tasks_across_all_pets PASSED   [ 18%]
-tests/test_pawpal.py::test_high_priority_is_scheduled_before_low PASSED  [ 25%]
-tests/test_pawpal.py::test_task_is_skipped_when_budget_runs_out PASSED   [ 31%]
-tests/test_pawpal.py::test_completed_tasks_are_left_out_of_the_plan PASSED [ 37%]
-tests/test_pawpal.py::test_scheduler_works_around_a_blocked_window PASSED [ 43%]
-tests/test_pawpal.py::test_planning_twice_does_not_mutate_the_pets_tasks PASSED [ 50%]
-tests/test_pawpal.py::test_sort_by_time_orders_tasks_entered_out_of_order PASSED [ 56%]
-tests/test_pawpal.py::test_filter_tasks_narrows_by_pet_and_status PASSED [ 62%]
-tests/test_pawpal.py::test_completing_a_daily_task_queues_it_for_tomorrow PASSED [ 68%]
-tests/test_pawpal.py::test_completing_a_weekly_task_queues_it_seven_days_out PASSED [ 75%]
-tests/test_pawpal.py::test_completing_a_one_off_task_queues_nothing PASSED [ 81%]
-tests/test_pawpal.py::test_tomorrows_task_is_not_planned_today PASSED    [ 87%]
-tests/test_pawpal.py::test_detect_conflicts_warns_on_overlapping_requested_times PASSED [ 93%]
-tests/test_pawpal.py::test_detect_conflicts_is_quiet_when_times_only_touch PASSED [100%]
+tests/test_pawpal.py::test_mark_complete_changes_status PASSED           [  3%]
+tests/test_pawpal.py::test_adding_task_increases_pet_task_count PASSED   [  6%]
+tests/test_pawpal.py::test_owner_collects_tasks_across_all_pets PASSED   [ 10%]
+tests/test_pawpal.py::test_high_priority_is_scheduled_before_low PASSED  [ 13%]
+tests/test_pawpal.py::test_task_is_skipped_when_budget_runs_out PASSED   [ 17%]
+tests/test_pawpal.py::test_completed_tasks_are_left_out_of_the_plan PASSED [ 20%]
+tests/test_pawpal.py::test_scheduler_works_around_a_blocked_window PASSED [ 24%]
+tests/test_pawpal.py::test_planning_twice_does_not_mutate_the_pets_tasks PASSED [ 27%]
+tests/test_pawpal.py::test_sort_by_time_orders_tasks_entered_out_of_order PASSED [ 31%]
+tests/test_pawpal.py::test_filter_tasks_narrows_by_pet_and_status PASSED [ 34%]
+tests/test_pawpal.py::test_completing_a_daily_task_queues_it_for_tomorrow PASSED [ 37%]
+tests/test_pawpal.py::test_completing_a_weekly_task_queues_it_seven_days_out PASSED [ 41%]
+tests/test_pawpal.py::test_completing_a_one_off_task_queues_nothing PASSED [ 44%]
+tests/test_pawpal.py::test_tomorrows_task_is_not_planned_today PASSED    [ 48%]
+tests/test_pawpal.py::test_detect_conflicts_warns_on_overlapping_requested_times PASSED [ 51%]
+tests/test_pawpal.py::test_detect_conflicts_is_quiet_when_times_only_touch PASSED [ 55%]
+tests/test_pawpal.py::test_completing_the_same_task_twice_queues_only_one_follow_up PASSED [ 58%]
+tests/test_pawpal.py::test_owner_with_no_pets_produces_an_empty_plan PASSED [ 62%]
+tests/test_pawpal.py::test_pet_with_no_tasks_produces_an_empty_plan PASSED [ 65%]
+tests/test_pawpal.py::test_everything_is_skipped_when_there_is_no_time_at_all PASSED [ 68%]
+tests/test_pawpal.py::test_task_requested_too_late_in_the_day_is_deferred PASSED [ 72%]
+tests/test_pawpal.py::test_three_tasks_at_the_same_time_report_every_clashing_pair PASSED [ 75%]
+tests/test_pawpal.py::test_daily_recurrence_rolls_over_the_year_boundary PASSED [ 79%]
+tests/test_pawpal.py::test_weekly_recurrence_rolls_over_a_month_boundary PASSED [ 82%]
+tests/test_pawpal.py::test_filter_by_pet_name_ignores_case PASSED        [ 86%]
+tests/test_pawpal.py::test_sort_by_time_is_stable_when_nothing_has_a_requested_time PASSED [ 89%]
+tests/test_pawpal.py::test_invalid_task_values_are_rejected_at_construction PASSED [ 93%]
+tests/test_pawpal.py::test_invalid_blocked_window_is_rejected PASSED     [ 96%]
+tests/test_pawpal.py::test_editing_or_removing_an_unknown_task_returns_false PASSED [100%]
 
-============================= 16 passed in 0.03s ==============================
+============================= 29 passed in 0.04s ==============================
 ```
+
+### Confidence level
+
+**★★★★☆ (4 / 5)**
+
+The scheduling logic itself I trust. Every branch that decides what gets scheduled, what
+gets dropped and when a task repeats is covered by a test, and writing those tests found
+three real bugs: a freshly queued task appearing in the same day's plan, a double
+completion queueing two copies of tomorrow's task, and a Streamlit form field that
+silently discarded the time the user typed.
+
+The missing star is for what the suite does not reach. `app.py` has no automated tests, so
+the UI is verified by hand. Recurrence is only tested one step forward, never over a week
+of simulated days. And nothing covers a plan that runs past midnight, because the day
+cutoff currently makes that unreachable rather than because it is known to be safe.
 
 ## 📐 Smarter Scheduling
 

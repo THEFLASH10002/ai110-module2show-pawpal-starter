@@ -147,7 +147,9 @@ class Pet:
         tell "nothing repeats" from "here is tomorrow's walk".
         """
         task = self.find_task(task_id)
-        if task is None:
+        if task is None or task.is_complete:
+            # Completing something already ticked off must not queue a second
+            # follow-up, or a double click would leave two of tomorrow's walk.
             return None
         task.mark_complete()
         follow_up = task.next_occurrence()
