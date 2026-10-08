@@ -206,13 +206,15 @@ The prompts that worked best named a specific file and asked a narrow question a
 The ones that worked worst were open invitations like "make this better", which produced
 plausible code I then had to argue with.
 
-On keeping phases in separate chat sessions: I did not do this. I built the whole project
-in one continuous session, which meant the assistant kept the full history of why each
-decision was made, and I never had to re-explain the design. The cost is that the context
-grew long, and an assistant carrying its own earlier reasoning is less likely to challenge
-it. If I were starting again I would keep implementation in one running session, but open a
-genuinely fresh session for review and testing, so the reviewer has no attachment to the
-code it is reviewing.
+On organising the work across chat sessions: I used an all-in-one workflow rather than
+opening a separate session for each phase. Everything from the first UML sketch to this
+reflection happened in one continuous session, so the context carried over the whole way
+through. By Phase 6 the assistant still knew why I had argued against a separate plan class
+in Phase 2 and then reversed that decision in Phase 3, which meant I never had to
+re-attach files or re-explain the design to get a useful answer. Keeping one thread is also
+what kept the UML, the code, the README and this reflection consistent with each other,
+because every one of those was written with the same history behind it rather than from a
+fresh description of the project.
 
 **b. Judgment and verification**
 
@@ -239,7 +241,7 @@ added `PlannedItem` after all. Being told I was wrong by a tool is only useful i
 the claim rather than either dismissing it or accepting it, and in this case writing the
 failing scenario out by hand was what settled it.
 
-How I verified things in general: I ran everything. The test suite went from 2 tests to 29,
+How I verified things in general: I ran everything. The test suite went from 2 tests to 30,
 and three genuine bugs were found by running code rather than by reading it.
 
 - **A recurring task fed itself.** Completing today's walk queued tomorrow's copy, which
@@ -259,7 +261,7 @@ looked right.
 
 **a. What you tested**
 
-29 tests in `tests/test_pawpal.py`, split between happy paths and edge cases.
+30 tests in `tests/test_pawpal.py`, split between happy paths and edge cases.
 
 The happy paths cover the behaviours the app is actually for: a task's completion status
 changes when it is ticked off, adding a task to a pet grows that pet's list, the owner can

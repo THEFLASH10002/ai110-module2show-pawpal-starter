@@ -46,6 +46,24 @@ Your final app should:
 - Display the plan clearly (and ideally explain the reasoning)
 - Include tests for the most important scheduling behaviors
 
+## 🏗️ Architecture
+
+All logic lives in `pawpal_system.py`; `app.py` and `main.py` are front ends over it and
+contain no scheduling rules of their own. The full class diagram is in
+[`diagrams/uml_final.mmd`](diagrams/uml_final.mmd).
+
+| Class | Responsibility |
+|---|---|
+| **`Task`** | One care activity. Holds its description (`title`), how long it takes, priority, frequency, an optional fixed `preferred_time`, the `due_date` it next falls due, and its completion status. Knows how to mark itself complete, rank its own priority, say whether it fits in a given gap, and build its next occurrence. |
+| **`Pet`** | A pet's identity plus the collection of tasks it needs. Adds, finds, edits, removes and lists tasks, and `complete_task` ticks one off *and* queues its follow-up. |
+| **`Owner`** | The person, their pets, and the constraints they bring: a daily minute budget and any blocked windows. Exposes the whole household's tasks through `all_tasks`, `pending_tasks` and `filter_tasks`, so nothing else has to reach into `Pet.tasks` directly. |
+| **`PlannedItem`** | One task placed at one time for one pet, plus the reason it landed there. Scheduling state lives here rather than on `Task`, so generating a plan never writes into a pet's permanent task list. |
+| **`Scheduler`** | The brain. Reads the household through the `Owner`, then collects, sorts, filters, selects within the budget, assigns clock times around blocked windows, flags conflicts, and explains the result. Works across every pet at once, on one shared time budget and one shared clock. |
+
+**How they fit together:** an `Owner` has many `Pet`s, a `Pet` has many `Task`s, and the
+`Scheduler` reads the whole tree through the `Owner` and emits `PlannedItem`s. The arrows
+only run one way, so there are no circular dependencies.
+
 ## Getting started
 
 ### Setup
@@ -56,15 +74,32 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Suggested workflow
+### Running the terminal demo
 
-1. Read the scenario carefully and identify requirements and edge cases.
-2. Draft a UML diagram (classes, attributes, methods, relationships).
-3. Convert UML into Python class stubs (no logic yet).
-4. Implement scheduling logic in small increments.
-5. Add tests to verify key behaviors.
-6. Connect your logic to the Streamlit UI in `app.py`.
-7. Refine UML so it matches what you actually built.
+```bash
+python main.py
+```
+
+Builds a sample household and walks through every scheduling feature in order: sorting by
+time, filtering, conflict detection, recurrence, and the final explained plan. No arguments
+needed. See [Sample Output](#-sample-output) for what it prints.
+
+### Running the Streamlit app
+
+```bash
+streamlit run app.py
+```
+
+Opens PawPal+ in your browser at `http://localhost:8501`. Add pets and tasks, set your
+time budget and blocked hours in the sidebar, then press **Generate schedule**.
+
+### Running the tests
+
+```bash
+python -m pytest
+```
+
+30 tests. See [Testing PawPal+](#-testing-pawpal) for what they cover.
 
 ## 🖥️ Sample Output
 
@@ -112,7 +147,7 @@ python -m pytest --cov
 
 ### What the tests cover
 
-29 tests in `tests/test_pawpal.py`, split between happy paths and edge cases.
+30 tests in `tests/test_pawpal.py`, split between happy paths and edge cases.
 
 | Area | Behaviour verified |
 |---|---|
@@ -137,39 +172,40 @@ platform win32 -- Python 3.12.0, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\kenne\Ap
 cachedir: .pytest_cache
 rootdir: ...
 plugins: anyio-4.13.0
-collecting ... collected 29 items
+collecting ... collected 30 items
 
 tests/test_pawpal.py::test_mark_complete_changes_status PASSED           [  3%]
 tests/test_pawpal.py::test_adding_task_increases_pet_task_count PASSED   [  6%]
 tests/test_pawpal.py::test_owner_collects_tasks_across_all_pets PASSED   [ 10%]
 tests/test_pawpal.py::test_high_priority_is_scheduled_before_low PASSED  [ 13%]
-tests/test_pawpal.py::test_task_is_skipped_when_budget_runs_out PASSED   [ 17%]
+tests/test_pawpal.py::test_task_is_skipped_when_budget_runs_out PASSED   [ 16%]
 tests/test_pawpal.py::test_completed_tasks_are_left_out_of_the_plan PASSED [ 20%]
-tests/test_pawpal.py::test_scheduler_works_around_a_blocked_window PASSED [ 24%]
-tests/test_pawpal.py::test_planning_twice_does_not_mutate_the_pets_tasks PASSED [ 27%]
-tests/test_pawpal.py::test_sort_by_time_orders_tasks_entered_out_of_order PASSED [ 31%]
-tests/test_pawpal.py::test_filter_tasks_narrows_by_pet_and_status PASSED [ 34%]
-tests/test_pawpal.py::test_completing_a_daily_task_queues_it_for_tomorrow PASSED [ 37%]
-tests/test_pawpal.py::test_completing_a_weekly_task_queues_it_seven_days_out PASSED [ 41%]
-tests/test_pawpal.py::test_completing_a_one_off_task_queues_nothing PASSED [ 44%]
-tests/test_pawpal.py::test_tomorrows_task_is_not_planned_today PASSED    [ 48%]
-tests/test_pawpal.py::test_detect_conflicts_warns_on_overlapping_requested_times PASSED [ 51%]
-tests/test_pawpal.py::test_detect_conflicts_is_quiet_when_times_only_touch PASSED [ 55%]
-tests/test_pawpal.py::test_completing_the_same_task_twice_queues_only_one_follow_up PASSED [ 58%]
-tests/test_pawpal.py::test_owner_with_no_pets_produces_an_empty_plan PASSED [ 62%]
-tests/test_pawpal.py::test_pet_with_no_tasks_produces_an_empty_plan PASSED [ 65%]
-tests/test_pawpal.py::test_everything_is_skipped_when_there_is_no_time_at_all PASSED [ 68%]
-tests/test_pawpal.py::test_task_requested_too_late_in_the_day_is_deferred PASSED [ 72%]
-tests/test_pawpal.py::test_three_tasks_at_the_same_time_report_every_clashing_pair PASSED [ 75%]
-tests/test_pawpal.py::test_daily_recurrence_rolls_over_the_year_boundary PASSED [ 79%]
-tests/test_pawpal.py::test_weekly_recurrence_rolls_over_a_month_boundary PASSED [ 82%]
-tests/test_pawpal.py::test_filter_by_pet_name_ignores_case PASSED        [ 86%]
-tests/test_pawpal.py::test_sort_by_time_is_stable_when_nothing_has_a_requested_time PASSED [ 89%]
-tests/test_pawpal.py::test_invalid_task_values_are_rejected_at_construction PASSED [ 93%]
-tests/test_pawpal.py::test_invalid_blocked_window_is_rejected PASSED     [ 96%]
-tests/test_pawpal.py::test_editing_or_removing_an_unknown_task_returns_false PASSED [100%]
+tests/test_pawpal.py::test_scheduler_works_around_a_blocked_window PASSED [ 23%]
+tests/test_pawpal.py::test_planning_twice_does_not_mutate_the_pets_tasks PASSED [ 26%]
+tests/test_pawpal.py::test_sort_by_time_orders_tasks_entered_out_of_order PASSED [ 30%]
+tests/test_pawpal.py::test_filter_tasks_narrows_by_pet_and_status PASSED [ 33%]
+tests/test_pawpal.py::test_completing_a_daily_task_queues_it_for_tomorrow PASSED [ 36%]
+tests/test_pawpal.py::test_completing_a_weekly_task_queues_it_seven_days_out PASSED [ 40%]
+tests/test_pawpal.py::test_completing_a_one_off_task_queues_nothing PASSED [ 43%]
+tests/test_pawpal.py::test_tomorrows_task_is_not_planned_today PASSED    [ 46%]
+tests/test_pawpal.py::test_detect_conflicts_warns_on_overlapping_requested_times PASSED [ 50%]
+tests/test_pawpal.py::test_detect_conflicts_is_quiet_when_times_only_touch PASSED [ 53%]
+tests/test_pawpal.py::test_completing_the_same_task_twice_queues_only_one_follow_up PASSED [ 56%]
+tests/test_pawpal.py::test_owner_with_no_pets_produces_an_empty_plan PASSED [ 60%]
+tests/test_pawpal.py::test_pet_with_no_tasks_produces_an_empty_plan PASSED [ 63%]
+tests/test_pawpal.py::test_everything_is_skipped_when_there_is_no_time_at_all PASSED [ 66%]
+tests/test_pawpal.py::test_task_requested_too_late_in_the_day_is_deferred PASSED [ 70%]
+tests/test_pawpal.py::test_three_tasks_at_the_same_time_report_every_clashing_pair PASSED [ 73%]
+tests/test_pawpal.py::test_daily_recurrence_rolls_over_the_year_boundary PASSED [ 76%]
+tests/test_pawpal.py::test_weekly_recurrence_rolls_over_a_month_boundary PASSED [ 80%]
+tests/test_pawpal.py::test_filter_by_pet_name_ignores_case PASSED        [ 83%]
+tests/test_pawpal.py::test_sort_by_time_is_stable_when_nothing_has_a_requested_time PASSED [ 86%]
+tests/test_pawpal.py::test_invalid_task_values_are_rejected_at_construction PASSED [ 90%]
+tests/test_pawpal.py::test_invalid_blocked_window_is_rejected PASSED     [ 93%]
+tests/test_pawpal.py::test_editing_or_removing_an_unknown_task_returns_false PASSED [ 96%]
+tests/test_pawpal.py::test_scheduler_sorts_and_plans_across_two_pets PASSED [100%]
 
-============================= 29 passed in 0.04s ==============================
+============================= 30 passed in 0.04s ==============================
 ```
 
 ### Confidence level

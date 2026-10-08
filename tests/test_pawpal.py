@@ -326,3 +326,20 @@ def test_editing_or_removing_an_unknown_task_returns_false(pet: Pet):
     assert pet.edit_task("nope", title="x") is False
     assert pet.remove_task("nope") is False
     assert pet.complete_task("nope") is None
+
+
+def test_scheduler_sorts_and_plans_across_two_pets(owner: Owner, pet: Pet):
+    """Sorting and planning interleave both pets on one timeline, not one pet then the other."""
+    pet.add_task(Task("Morning walk", 30, "high", preferred_time="07:30"))
+    pet.add_task(Task("Breakfast", 10, "high", preferred_time="09:00"))
+    mochi = Pet("Mochi", "cat")
+    mochi.add_task(Task("Thyroid medication", 5, "high", preferred_time="08:00"))
+    owner.add_pet(mochi)
+
+    planned, _ = Scheduler(owner).generate_plan(start_time="07:00")
+
+    assert [(i.pet.name, i.task.title) for i in planned] == [
+        ("Biscuit", "Morning walk"),
+        ("Mochi", "Thyroid medication"),
+        ("Biscuit", "Breakfast"),
+    ]
