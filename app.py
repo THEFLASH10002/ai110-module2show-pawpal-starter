@@ -1,5 +1,7 @@
 """Streamlit front end for PawPal+. All logic lives in pawpal_system.py."""
 
+from datetime import date
+
 import streamlit as st
 
 from pawpal_system import Owner, Pet, Scheduler, Task
@@ -99,8 +101,10 @@ with st.form("add_task", clear_on_submit=True):
     priority = priority_col.selectbox("Priority", ["high", "medium", "low"], index=1)
     frequency = frequency_col.selectbox("Frequency", ["daily", "weekly", "once"])
 
-    wants_time = st.checkbox("This has to happen at a particular time")
-    preferred = st.time_input("Preferred time", value=None, disabled=not wants_time)
+    # No "does this have a time?" checkbox: widgets inside a form do not take effect
+    # until submit, so the time field would still be disabled on the run that ticks
+    # the box and the entered time would be thrown away. An empty field means flexible.
+    preferred = st.time_input("Preferred time (leave empty if flexible)", value=None)
 
     if st.form_submit_button("Add task"):
         if not title.strip():
@@ -112,36 +116,53 @@ with st.form("add_task", clear_on_submit=True):
                     int(duration),
                     priority,
                     frequency,
-                    preferred_time=preferred.strftime("%H:%M")
-                    if wants_time and preferred
-                    else None,
+                    preferred_time=preferred.strftime("%H:%M") if preferred else None,
                 )
             )
             st.rerun()
 
+view = st.radio(
+    "Show", ["Outstanding", "Done", "All"], horizontal=True, label_visibility="collapsed"
+)
+status = {"Outstanding": False, "Done": True, "All": None}[view]
+
 for pet in owner.pets:
     with st.expander(f"{pet.name} — {len(pet.pending_tasks())} pending", expanded=True):
-        if not pet.tasks:
-            st.caption("No tasks yet.")
-        for task in list(pet.tasks):
+        visible = [t for _, t in owner.filter_tasks(pet_name=pet.name, completed=status)]
+        if not visible:
+            st.caption("Nothing to show here.")
+        for task in visible:
             done_col, label_col, remove_col = st.columns([1, 6, 1])
 
             done = done_col.checkbox(
                 "Done", value=task.is_complete, key=f"done_{task.task_id}",
                 label_visibility="collapsed",
             )
-            if done != task.is_complete:
-                task.mark_complete() if done else task.mark_incomplete()
+            if done and not task.is_complete:
+                # complete_task, not task.mark_complete: it also queues the next
+                # occurrence for a daily or weekly task.
+                follow_up = pet.complete_task(task.task_id)
+                if follow_up is not None:
+                    st.toast(f"{task.title} queued again for {follow_up.due_date}")
+                st.rerun()
+            elif not done and task.is_complete:
+                task.mark_incomplete()
                 st.rerun()
 
             detail = f"{task.duration_minutes} min · {task.priority} · {task.frequency}"
             if task.preferred_time:
                 detail += f" · at {task.preferred_time}"
+            if task.due_date != date.today():
+                detail += f" · due {task.due_date}"
             label_col.write(f"{'~~' + task.title + '~~' if done else task.title}  \n`{detail}`")
 
             if remove_col.button("✕", key=f"remove_{task.task_id}"):
                 pet.remove_task(task.task_id)
                 st.rerun()
+
+conflicts = Scheduler(owner).detect_conflicts()
+for warning in conflicts:
+    st.warning(warning, icon="⚠️")
 
 st.divider()
 

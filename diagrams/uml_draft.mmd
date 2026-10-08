@@ -1,6 +1,6 @@
 classDiagram
     %% PawPal+ working diagram. Drafted in Phase 2, revised in Phase 3 after
-    %% reviewing the skeleton, and updated in Phase 4 to match the built code.
+    %% reviewing the skeleton, and updated again as the scheduling logic grew.
 
     class Owner {
         +str name
@@ -14,6 +14,7 @@ classDiagram
         +overlaps_blocked(start str, duration int) bool
         +all_tasks() list~tuple~
         +pending_tasks() list~tuple~
+        +filter_tasks(pet_name, completed, priority, due_on) list~tuple~
     }
 
     class Pet {
@@ -26,6 +27,7 @@ classDiagram
         +edit_task(task_id str, **changes) bool
         +remove_task(task_id str) bool
         +pending_tasks() list~Task~
+        +complete_task(task_id str) Task
     }
 
     class Task {
@@ -35,9 +37,13 @@ classDiagram
         +str priority
         +str frequency
         +str preferred_time
+        +date due_date
         +bool is_complete
         +mark_complete() void
         +mark_incomplete() void
+        +next_due_date() date
+        +next_occurrence() Task
+        +window() tuple
         +priority_rank() int
         +fits_in(minutes_left int) bool
     }
@@ -53,8 +59,11 @@ classDiagram
     class Scheduler {
         +Owner owner
         +str day_ends
+        +date today
         +collect_tasks() list~PlannedItem~
+        +sort_by_time(items list) list~PlannedItem~
         +sort_by_priority(items list) list~PlannedItem~
+        +detect_conflicts(items list) list~str~
         +select_tasks(items list) tuple
         +assign_times(items list, start str) tuple
         +generate_plan(start str) tuple

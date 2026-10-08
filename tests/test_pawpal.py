@@ -1,5 +1,7 @@
 """Tests for the PawPal+ core system."""
 
+from datetime import date
+
 import pytest
 
 from pawpal_system import Owner, Pet, Scheduler, Task
@@ -109,3 +111,97 @@ def test_planning_twice_does_not_mutate_the_pets_tasks(owner: Owner, pet: Pet):
     assert planned == []
     assert [i.task.title for i in skipped] == ["Morning walk"]
     assert not hasattr(pet.tasks[0], "start_time")
+
+
+def test_sort_by_time_orders_tasks_entered_out_of_order(owner: Owner, pet: Pet):
+    """Tasks added back to front come out in clock order, with untimed ones last."""
+    pet.add_task(Task("Evening enrichment", 20, "low", preferred_time="18:00"))
+    pet.add_task(Task("Litter box", 10, "medium"))
+    pet.add_task(Task("Morning walk", 30, "high", preferred_time="07:30"))
+
+    scheduler = Scheduler(owner)
+    ordered = scheduler.sort_by_time(scheduler.collect_tasks())
+
+    assert [i.task.title for i in ordered] == [
+        "Morning walk",
+        "Evening enrichment",
+        "Litter box",
+    ]
+
+
+def test_filter_tasks_narrows_by_pet_and_status(owner: Owner, pet: Pet):
+    """filter_tasks applies only the filters it is given, and combines them."""
+    walk = Task("Morning walk", 30, "high")
+    pet.add_task(walk)
+    mochi = Pet("Mochi", "cat")
+    mochi.add_task(Task("Thyroid medication", 5, "high"))
+    owner.add_pet(mochi)
+    walk.mark_complete()
+
+    assert len(owner.filter_tasks()) == 2
+    assert [t.title for _, t in owner.filter_tasks(pet_name="Mochi")] == ["Thyroid medication"]
+    assert [t.title for _, t in owner.filter_tasks(completed=True)] == ["Morning walk"]
+    assert owner.filter_tasks(pet_name="Mochi", completed=True) == []
+
+
+def test_completing_a_daily_task_queues_it_for_tomorrow(pet: Pet):
+    """Completing a daily task leaves it done and adds a fresh one due the next day."""
+    walk = Task("Morning walk", 30, "high", "daily", due_date=date(2026, 10, 7))
+    pet.add_task(walk)
+
+    follow_up = pet.complete_task(walk.task_id)
+
+    assert walk.is_complete is True
+    assert follow_up.due_date == date(2026, 10, 8)
+    assert follow_up.is_complete is False
+    assert len(pet.tasks) == 2
+
+
+def test_completing_a_weekly_task_queues_it_seven_days_out(pet: Pet):
+    """A weekly task comes back a week later, not the next day."""
+    grooming = Task("Full grooming", 45, "low", "weekly", due_date=date(2026, 10, 7))
+    pet.add_task(grooming)
+
+    assert pet.complete_task(grooming.task_id).due_date == date(2026, 10, 14)
+
+
+def test_completing_a_one_off_task_queues_nothing(pet: Pet):
+    """A task with frequency 'once' does not come back."""
+    trim = Task("Nail trim", 15, "low", "once")
+    pet.add_task(trim)
+
+    assert pet.complete_task(trim.task_id) is None
+    assert len(pet.tasks) == 1
+
+
+def test_tomorrows_task_is_not_planned_today(owner: Owner, pet: Pet):
+    """A follow-up queued for tomorrow stays out of today's plan."""
+    walk = Task("Morning walk", 30, "high", "daily", due_date=date(2026, 10, 7))
+    pet.add_task(walk)
+    pet.complete_task(walk.task_id)
+
+    planned, skipped = Scheduler(owner, today=date(2026, 10, 7)).generate_plan()
+
+    assert planned == []
+    assert skipped == []
+
+
+def test_detect_conflicts_warns_on_overlapping_requested_times(owner: Owner, pet: Pet):
+    """Two tasks asking for the same slot produce a warning string, not an exception."""
+    pet.add_task(Task("Breakfast", 10, "high", preferred_time="08:15"))
+    mochi = Pet("Mochi", "cat")
+    mochi.add_task(Task("Thyroid medication", 5, "high", preferred_time="08:15"))
+    owner.add_pet(mochi)
+
+    warnings = Scheduler(owner).detect_conflicts()
+
+    assert len(warnings) == 1
+    assert "Breakfast" in warnings[0] and "Thyroid medication" in warnings[0]
+
+
+def test_detect_conflicts_is_quiet_when_times_only_touch(owner: Owner, pet: Pet):
+    """A task ending exactly when the next starts is not a conflict."""
+    pet.add_task(Task("Breakfast", 10, "high", preferred_time="08:00"))
+    pet.add_task(Task("Morning walk", 30, "high", preferred_time="08:10"))
+
+    assert Scheduler(owner).detect_conflicts() == []

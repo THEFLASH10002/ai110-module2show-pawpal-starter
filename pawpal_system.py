@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from itertools import count
+from datetime import date, timedelta
+from itertools import combinations, count
 
 PRIORITY_RANKS = {"high": 3, "medium": 2, "low": 1}
+
+# How far ahead the next instance of a repeating task falls due.
+FREQUENCY_DAYS = {"daily": 1, "weekly": 7}
 
 
 def to_minutes(clock: str) -> int:
@@ -31,8 +35,9 @@ class Task:
         frequency: str = "daily",
         preferred_time: str | None = None,
         task_id: str | None = None,
+        due_date: date | None = None,
     ) -> None:
-        """Create a care task, assigning it a unique id if one is not supplied."""
+        """Create a care task, assigning it a unique id and today's date if not supplied."""
         if duration_minutes <= 0:
             raise ValueError("duration_minutes must be positive")
         if priority not in PRIORITY_RANKS:
@@ -43,7 +48,34 @@ class Task:
         self.priority = priority
         self.frequency = frequency
         self.preferred_time = preferred_time
+        self.due_date = due_date or date.today()
         self.is_complete = False
+
+    def next_due_date(self) -> date | None:
+        """Return when this task falls due again, or None if it does not repeat."""
+        step = FREQUENCY_DAYS.get(self.frequency)
+        return self.due_date + timedelta(days=step) if step else None
+
+    def next_occurrence(self) -> Task | None:
+        """Return a fresh pending copy of this task due on its next date, or None if one-off."""
+        next_date = self.next_due_date()
+        if next_date is None:
+            return None
+        return Task(
+            self.title,
+            self.duration_minutes,
+            self.priority,
+            self.frequency,
+            self.preferred_time,
+            due_date=next_date,
+        )
+
+    def window(self) -> tuple[int, int] | None:
+        """Return this task's requested start and end in minutes, or None if it has no set time."""
+        if self.preferred_time is None:
+            return None
+        start = to_minutes(self.preferred_time)
+        return start, start + self.duration_minutes
 
     def mark_complete(self) -> None:
         """Mark this task as done for today."""
@@ -108,6 +140,21 @@ class Pet:
         """Return only the tasks that have not been completed yet."""
         return [t for t in self.tasks if not t.is_complete]
 
+    def complete_task(self, task_id: str) -> Task | None:
+        """Tick a task off and queue its next occurrence, returning that follow-up task.
+
+        Returns None when the task is one-off or the id is unknown, so a caller can
+        tell "nothing repeats" from "here is tomorrow's walk".
+        """
+        task = self.find_task(task_id)
+        if task is None:
+            return None
+        task.mark_complete()
+        follow_up = task.next_occurrence()
+        if follow_up is not None:
+            self.add_task(follow_up)
+        return follow_up
+
     def __repr__(self) -> str:
         """Return a readable debug representation."""
         return f"<Pet {self.name} ({self.species}) {len(self.tasks)} tasks>"
@@ -162,6 +209,30 @@ class Owner:
         """Return every not-yet-completed task across every pet, paired with its pet."""
         return [(pet, task) for pet, task in self.all_tasks() if not task.is_complete]
 
+    def filter_tasks(
+        self,
+        pet_name: str | None = None,
+        completed: bool | None = None,
+        priority: str | None = None,
+        due_on: date | None = None,
+    ) -> list[tuple[Pet, Task]]:
+        """Return (pet, task) pairs narrowed by any combination of pet, status, priority and date.
+
+        Every filter left as None is simply not applied, so filter_tasks() returns
+        everything and filter_tasks(pet_name="Mochi", completed=False) returns just
+        what Mochi still needs today.
+        """
+        pairs = self.all_tasks()
+        if pet_name is not None:
+            pairs = [(p, t) for p, t in pairs if p.name.lower() == pet_name.lower()]
+        if completed is not None:
+            pairs = [(p, t) for p, t in pairs if t.is_complete is completed]
+        if priority is not None:
+            pairs = [(p, t) for p, t in pairs if t.priority == priority]
+        if due_on is not None:
+            pairs = [(p, t) for p, t in pairs if t.due_date == due_on]
+        return pairs
+
     def __repr__(self) -> str:
         """Return a readable debug representation."""
         return f"<Owner {self.name} {len(self.pets)} pets {self.available_minutes}min>"
@@ -197,14 +268,66 @@ class PlannedItem:
 class Scheduler:
     """Turns an owner's constraints and their pets' tasks into an explained daily plan."""
 
-    def __init__(self, owner: Owner, day_ends: str = "21:00") -> None:
-        """Create a scheduler for one owner, with a cutoff time for the day."""
+    def __init__(
+        self, owner: Owner, day_ends: str = "21:00", today: date | None = None
+    ) -> None:
+        """Create a scheduler for one owner, with a cutoff time and the date being planned."""
         self.owner = owner
         self.day_ends = day_ends
+        self.today = today or date.today()
 
     def collect_tasks(self) -> list[PlannedItem]:
-        """Gather every pending task from every pet, still unscheduled."""
-        return [PlannedItem(task, pet) for pet, task in self.owner.pending_tasks()]
+        """Gather pending tasks that are actually due by today, still unscheduled.
+
+        The due date check is what keeps a repeating task honest: completing today's
+        walk queues tomorrow's, and without this filter that follow-up would turn
+        straight around and appear in today's plan.
+        """
+        return [
+            PlannedItem(task, pet)
+            for pet, task in self.owner.pending_tasks()
+            if task.due_date <= self.today
+        ]
+
+    @staticmethod
+    def _clock_key(item: PlannedItem) -> tuple[bool, int]:
+        """Return a sort key placing timed tasks in clock order and untimed ones last.
+
+        'HH:MM' strings happen to sort correctly as text, but only while every value
+        is zero padded and non-null. Converting to minutes makes that assumption
+        explicit, and the leading bool pushes tasks with no time to the end instead
+        of blowing up on None.
+        """
+        clock = item.start_time or item.task.preferred_time
+        return (clock is None, to_minutes(clock) if clock else 0)
+
+    def sort_by_time(self, items: list[PlannedItem]) -> list[PlannedItem]:
+        """Order tasks by the clock, using the scheduled time if set and the requested one if not."""
+        return sorted(items, key=self._clock_key)
+
+    def detect_conflicts(self, items: list[PlannedItem] | None = None) -> list[str]:
+        """Return a warning per pair of tasks whose requested times overlap, never raising.
+
+        This looks at what the owner asked for, not at the finished plan, because
+        assign_times already pushes clashing tasks apart. The warnings are how the
+        owner finds out that something they pinned to 08:00 will not happen at 08:00.
+        """
+        if items is None:
+            items = self.collect_tasks()
+        timed = [i for i in items if i.task.window() is not None]
+        warnings = []
+        for first, second in combinations(self.sort_by_time(timed), 2):
+            start_a, end_a = first.task.window()
+            start_b, end_b = second.task.window()
+            if start_a < end_b and start_b < end_a:
+                warnings.append(
+                    f"{first.pet.name}'s {first.task.title} "
+                    f"({to_clock(start_a)}-{to_clock(end_a)}) overlaps "
+                    f"{second.pet.name}'s {second.task.title} "
+                    f"({to_clock(start_b)}-{to_clock(end_b)}); "
+                    f"the later one will be pushed back."
+                )
+        return warnings
 
     def sort_by_priority(self, items: list[PlannedItem]) -> list[PlannedItem]:
         """Order by priority first, then shortest task, so quick wins are not crowded out."""
@@ -242,8 +365,7 @@ class Scheduler:
         """Put tasks with a requested time in time order, then the rest by priority."""
         requested = [i for i in items if i.task.preferred_time]
         flexible = [i for i in items if not i.task.preferred_time]
-        requested.sort(key=lambda i: to_minutes(i.task.preferred_time))
-        return requested + self.sort_by_priority(flexible)
+        return self.sort_by_time(requested) + self.sort_by_priority(flexible)
 
     def _first_free_slot(self, cursor: int, duration: int) -> int:
         """Push the clock forward past any blocked window this task would run into."""

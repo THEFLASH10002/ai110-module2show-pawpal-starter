@@ -120,8 +120,39 @@ apart before Phase 6.
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+The clearest tradeoff is in how requested times interact with priority. Once a task has a
+`preferred_time`, that time wins over importance when the plan is laid out, and every
+flexible task is placed after all of the pinned ones.
+
+`Scheduler._order_for_clock` splits the selected tasks into two groups: those with a
+requested time, sorted by the clock, and those without, sorted by priority. The requested
+group is placed first and the flexible group fills in afterwards. In practice that means a
+low priority "evening enrichment" pinned to 18:00 drags a medium priority "litter box"
+with no set time out to 18:20, even though the litter box is the more important job and
+there was an empty hour at 09:00 it could have filled.
+
+I chose this deliberately rather than by accident. The alternative is a gap-filling
+scheduler that slots flexible tasks into the empty space between pinned ones, which is
+genuinely better output but needs interval bookkeeping: tracking free windows, trying each
+flexible task against each gap, and deciding what to do when a task fits two gaps. That is
+a noticeably more complicated algorithm to write, read and test.
+
+For this scenario the simple version is defensible. The things that genuinely must happen
+at a fixed time are the ones an owner pins: medication at 09:00, feeding at 08:15. Those
+land exactly where they were asked for, which is the behaviour that actually matters for
+the pet's health. A flexible task landing at 18:20 instead of 09:00 is untidy, not harmful,
+because by definition the owner said they did not care when it happened. The scheduler also
+makes the consequence visible rather than hiding it: `explain_plan` prints why each task sits
+where it does, so the owner can see a task was placed late and pin it themselves if they
+disagree.
+
+A related, smaller tradeoff sits in `detect_conflicts`. It compares the times the owner
+*requested*, not the finished plan, and it checks true interval overlap rather than exact
+equality, so an 08:15 breakfast lasting 10 minutes is reported as clashing with 08:20
+medication. It returns warning strings and never raises. The cost is that it reports a
+clash the scheduler then quietly resolves by pushing the later task back, which could read
+as a false alarm. I kept it because the warning is the only place the owner learns that
+something they pinned to a specific time will not actually happen at that time.
 
 ---
 
