@@ -44,14 +44,34 @@ pip install -r requirements.txt
 
 ## 🖥️ Sample Output
 
-Paste a sample of your app's CLI or Streamlit output here so a reader can see what a generated plan looks like:
+Running `python main.py` builds a sample household (one owner, two pets, six tasks,
+a 100 minute budget and a blocked lunch hour) and prints the plan:
 
 ```
-# e.g.:
-# Daily plan for Biscuit (Golden Retriever):
-#   08:00 — Morning walk (30 min) [priority: high]
-#   09:00 — Feeding (10 min) [priority: high]
-#   ...
+================================================================
+                  TODAY'S SCHEDULE for Jordan
+================================================================
+  07:30-08:00   Biscuit   Morning walk           [high]
+  08:15-08:25   Biscuit   Breakfast              [high]
+  09:00-09:05   Mochi     Thyroid medication     [high]
+  18:00-18:20   Biscuit   Evening enrichment     [low]
+  18:20-18:30   Mochi     Litter box             [medium]
+----------------------------------------------------------------
+  NOT SCHEDULED TODAY
+  --            Biscuit   Full grooming          [low]
+                why: needs 45 min but only 25 min of the budget was left
+================================================================
+
+WHY THIS PLAN
+Jordan has 100 minutes today across 2 pets.
+Tasks were ranked by priority, then by how short they are, so quick wins are not crowded out by one long low-priority job.
+The plan works around these blocked times: 12:00-13:00.
+  07:30 Biscuit: Morning walk -> high priority, picked 3 of 6 into the 100 min budget; placed at the requested time
+  08:15 Biscuit: Breakfast -> high priority, picked 2 of 6 into the 100 min budget; placed at the requested time
+  09:00 Mochi: Thyroid medication -> high priority, picked 1 of 6 into the 100 min budget; placed at the requested time
+  18:00 Biscuit: Evening enrichment -> low priority, picked 5 of 6 into the 100 min budget; placed at the requested time
+  18:20 Mochi: Litter box -> medium priority, picked 4 of 6 into the 100 min budget
+  dropped Biscuit: Full grooming -> needs 45 min but only 25 min of the budget was left
 ```
 
 ## 🧪 Testing PawPal+
@@ -67,19 +87,31 @@ pytest --cov
 Sample test output:
 
 ```
-# Paste your pytest output here
+============================= test session starts =============================
+platform win32 -- Python 3.12.0, pytest-9.1.1, pluggy-1.6.0
+rootdir: .../ai110-module2show-pawpal-starter
+collected 8 items
+
+tests/test_pawpal.py::test_mark_complete_changes_status PASSED           [ 12%]
+tests/test_pawpal.py::test_adding_task_increases_pet_task_count PASSED   [ 25%]
+tests/test_pawpal.py::test_owner_collects_tasks_across_all_pets PASSED   [ 37%]
+tests/test_pawpal.py::test_high_priority_is_scheduled_before_low PASSED  [ 50%]
+tests/test_pawpal.py::test_task_is_skipped_when_budget_runs_out PASSED   [ 62%]
+tests/test_pawpal.py::test_completed_tasks_are_left_out_of_the_plan PASSED [ 75%]
+tests/test_pawpal.py::test_scheduler_works_around_a_blocked_window PASSED [ 87%]
+tests/test_pawpal.py::test_planning_twice_does_not_mutate_the_pets_tasks PASSED [100%]
+
+============================== 8 passed in 0.02s ==============================
 ```
 
 ## 📐 Smarter Scheduling
 
-> Fill in once you've implemented scheduling logic.
-
 | Feature | Method(s) | Notes |
 |---------|-----------|-------|
-| Task sorting | | e.g., by priority, duration |
-| Filtering | | e.g., skip tasks if time runs out |
-| Conflict handling | | e.g., overlapping time slots |
-| Recurring tasks | | e.g., daily vs. weekly |
+| Task sorting | `Scheduler.sort_by_priority`, `Task.priority_rank` | High before low, then shortest first so quick wins are not crowded out by one long job |
+| Filtering | `Scheduler.select_tasks`, `Task.fits_in` | Spends the owner's minute budget in priority order; anything that no longer fits is skipped with a reason |
+| Conflict handling | `Scheduler.assign_times`, `Owner.blocking_window` | Tasks run back to back from a single cursor, so two pets never collide; blocked windows are checked against the whole task duration, not just its start |
+| Recurring tasks | `Task.frequency`, `Task.mark_complete` | `frequency` records daily / weekly / once; completed tasks drop out of the next plan until `mark_incomplete` resets them |
 
 ## 📸 Demo Walkthrough
 

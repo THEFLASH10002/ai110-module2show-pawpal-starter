@@ -39,7 +39,7 @@ knowledge:
   belongs to the dog, not to the person. If a second pet is added later, its tasks stay
   cleanly separate with no rework.
 
-- **`CareTask`** is one unit of care: a title, how long it takes, how important it is, and
+- **`Task`** is one unit of care: a title, how long it takes, how important it is, and
   whether it repeats. It also knows two small things about itself, `priority_rank()` to
   turn "high" into a sortable number and `fits_in()` to answer whether it still fits in
   the time left. Keeping those on the task means the scheduler does not need to reach
@@ -67,7 +67,7 @@ all six and made the following changes:
    gathers tasks across every pet, so one budget and one timeline cover the whole day.
 
 2. **I added a `PlannedItem` class after all, reversing my original decision.** This is
-   the change I thought hardest about. `CareTask` had a `scheduled_time` attribute, which
+   the change I thought hardest about. `Task` had a `scheduled_time` attribute, which
    meant that generating a plan wrote into the pet's permanent task list. Re-running with
    less time available left skipped tasks still carrying a stale timestamp from the
    previous run. Separating the *definition* of a task from one *placement* of it fixes
@@ -97,8 +97,17 @@ all six and made the following changes:
    `generate_plan()` had already run. Passing the plan in makes that dependency visible in
    the signature and leaves the scheduler stateless.
 
-I also updated `diagrams/uml_draft.mmd` to match, so the diagram and the skeleton do not
-drift apart before Phase 6.
+7. **`CareTask` became `Task`, and gained completion state.** When I moved from skeleton to
+   implementation the spec called for a `Task` that tracks a completion status, so I
+   renamed the class and added `is_complete` with `mark_complete()` and
+   `mark_incomplete()`. That turned out to matter for more than display: `collect_tasks()`
+   now gathers only pending work, so a task ticked off in the morning does not reappear
+   when the plan is regenerated in the afternoon. At the same time `is_recurring: bool`
+   became `frequency: str`, because a boolean could only ever answer "daily or not" and
+   weekly grooming is a real case.
+
+I also updated `diagrams/uml_draft.mmd` to match, so the diagram and the code do not drift
+apart before Phase 6.
 
 ---
 

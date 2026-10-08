@@ -1,6 +1,6 @@
 classDiagram
-    %% PawPal+ working diagram. Drafted in Phase 2, revised in Phase 3
-    %% after reviewing the skeleton. Revisit again in Phase 6.
+    %% PawPal+ working diagram. Drafted in Phase 2, revised in Phase 3 after
+    %% reviewing the skeleton, and updated in Phase 4 to match the built code.
 
     class Owner {
         +str name
@@ -10,31 +10,40 @@ classDiagram
         +add_pet(pet Pet) void
         +set_availability(minutes int) void
         +block_window(start str, end str) void
+        +blocking_window(start str, duration int) tuple
         +overlaps_blocked(start str, duration int) bool
+        +all_tasks() list~tuple~
+        +pending_tasks() list~tuple~
     }
 
     class Pet {
         +str name
         +str species
         +str breed
-        +list~CareTask~ tasks
-        +add_task(task CareTask) void
+        +list~Task~ tasks
+        +add_task(task Task) void
+        +find_task(task_id str) Task
         +edit_task(task_id str, **changes) bool
         +remove_task(task_id str) bool
+        +pending_tasks() list~Task~
     }
 
-    class CareTask {
+    class Task {
         +str task_id
         +str title
         +int duration_minutes
         +str priority
-        +bool is_recurring
+        +str frequency
+        +str preferred_time
+        +bool is_complete
+        +mark_complete() void
+        +mark_incomplete() void
         +priority_rank() int
         +fits_in(minutes_left int) bool
     }
 
     class PlannedItem {
-        +CareTask task
+        +Task task
         +Pet pet
         +str start_time
         +str reason
@@ -43,17 +52,18 @@ classDiagram
 
     class Scheduler {
         +Owner owner
+        +str day_ends
         +collect_tasks() list~PlannedItem~
         +sort_by_priority(items list) list~PlannedItem~
         +select_tasks(items list) tuple
-        +assign_times(items list, start str) list~PlannedItem~
+        +assign_times(items list, start str) tuple
         +generate_plan(start str) tuple
         +explain_plan(planned list, skipped list) str
     }
 
     Owner "1" --> "*" Pet : cares for
-    Pet "1" --> "*" CareTask : needs
+    Pet "1" --> "*" Task : needs
     Scheduler "1" --> "1" Owner : reads constraints and all pets
     Scheduler ..> PlannedItem : produces
-    PlannedItem --> CareTask : wraps
+    PlannedItem --> Task : wraps
     PlannedItem --> Pet : belongs to
