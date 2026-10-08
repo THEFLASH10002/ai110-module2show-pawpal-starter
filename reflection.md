@@ -115,8 +115,29 @@ apart before Phase 6.
 
 **a. Constraints and priorities**
 
-- What constraints does your scheduler consider (for example: time, priority, preferences)?
-- How did you decide which constraints mattered most?
+The scheduler weighs four constraints, and the order matters because they are applied at
+different stages rather than all at once.
+
+1. **A time budget.** `Owner.available_minutes` is how many minutes of care the owner
+   actually has. `select_tasks` spends it in priority order and everything past the end of
+   the budget is dropped. This is the first constraint applied, because it decides *what*
+   happens at all before anything decides *when*.
+2. **Priority.** `Task.priority_rank` turns high / medium / low into a sortable number, and
+   ties break on the shortest task first. That tie-break is deliberate: given a 45 minute
+   grooming session and three 10 minute jobs at the same priority, doing the three short
+   ones helps the pet more than one long one.
+3. **Requested times.** A task with a `preferred_time` is pinned there, and the clock walks
+   forward from task to task so nothing double-books, even across two pets.
+4. **Blocked windows and the day's end.** `Owner.blocking_window` checks a task against the
+   owner's unavailable periods, and anything that cannot finish before the cutoff is
+   deferred rather than allowed to overrun.
+
+I decided the time budget mattered most because it is the constraint the owner cannot
+negotiate with. Priority comes next because the scenario is about a busy owner staying
+consistent with care that matters, which means medication should survive a squeeze that
+enrichment does not. Requested times rank below priority on purpose: a task being at
+exactly 09:00 matters less than it happening at all. Blocked windows are last because they
+only move a task rather than remove it.
 
 **b. Tradeoffs**
 
@@ -160,13 +181,77 @@ something they pinned to a specific time will not actually happen at that time.
 
 **a. How you used AI**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+I used an AI coding assistant in agent mode throughout, where it could read and edit
+several files at once and run commands itself. Three uses were clearly the most valuable.
+
+The first was **adversarial review of my own design**. After writing the class skeleton I
+asked it to look for missing relationships and logic bottlenecks rather than to add
+features. It came back with six issues, and all six were real: the scheduler took a single
+`Pet` while the owner held a list of them, tasks were identified by title when "Feeding"
+happens twice a day, and `generate_plan` was doing four jobs at once so I could not test
+ordering without also testing time assignment. Asking "what is wrong with this" produced
+far more useful output than asking "what should I build next".
+
+The second was **having it actually run the code instead of describing it**. The agent ran
+`python main.py` and the test suite after each change, and used Streamlit's `AppTest`
+harness to click through the UI. That is what caught the bugs described below. Code that
+looks correct in a chat window is not evidence of anything.
+
+The third was **writing tests from stated edge cases**. I described the situations I cared
+about in plain language, such as an owner with no pets or two tasks pinned to the same
+minute, and had it draft the tests. Describing the behaviour was the part that needed my
+judgement; writing the assertions was not.
+
+The prompts that worked best named a specific file and asked a narrow question about it.
+The ones that worked worst were open invitations like "make this better", which produced
+plausible code I then had to argue with.
+
+On keeping phases in separate chat sessions: I did not do this. I built the whole project
+in one continuous session, which meant the assistant kept the full history of why each
+decision was made, and I never had to re-explain the design. The cost is that the context
+grew long, and an assistant carrying its own earlier reasoning is less likely to challenge
+it. If I were starting again I would keep implementation in one running session, but open a
+genuinely fresh session for review and testing, so the reviewer has no attachment to the
+code it is reviewing.
 
 **b. Judgment and verification**
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+The clearest example was sorting tasks by time. The obvious suggestion is:
+
+```python
+sorted(tasks, key=lambda t: t.preferred_time)
+```
+
+This looks elegant and it works, because `"HH:MM"` strings happen to sort correctly as text
+while every value is zero padded. I rejected it. A flexible task has no requested time, so
+`preferred_time` is `None`, and the moment one of those enters the list the comparison
+raises `TypeError`. I replaced it with a named `_clock_key` method that converts to minutes
+and returns `(clock is None, minutes)`, so untimed tasks sort to the end instead of
+crashing. It is more lines of code, and I kept it because the `None` handling is visible
+rather than being a bug waiting for the first flexible task.
+
+I also reversed one of my own earlier decisions after thinking harder about an AI
+observation. I had argued against a separate plan class as unearned complexity, and stored
+`scheduled_time` directly on the task. The review pointed out that this meant generating a
+plan wrote into the pet's permanent task list. I checked, and it was worse than it sounded:
+re-running with a smaller budget left stale timestamps on tasks that had been skipped. I
+added `PlannedItem` after all. Being told I was wrong by a tool is only useful if I verify
+the claim rather than either dismissing it or accepting it, and in this case writing the
+failing scenario out by hand was what settled it.
+
+How I verified things in general: I ran everything. The test suite went from 2 tests to 29,
+and three genuine bugs were found by running code rather than by reading it.
+
+- **A recurring task fed itself.** Completing today's walk queued tomorrow's copy, which
+  immediately appeared in *today's* plan, because `collect_tasks` ignored `due_date`.
+- **A Streamlit widget silently discarded data.** Passing `Pet` objects as selectbox options
+  returned a *copy*, so `add_task` mutated an object the owner never saw and every task
+  vanished with no error at all. The fix was to select by index and look up the real object.
+- **A double click duplicated tomorrow.** `Pet.complete_task` queued a follow-up every time
+  it was called, so completing an already-completed task left two copies of tomorrow's walk.
+
+Not one of those three would have been caught by reading the code and agreeing that it
+looked right.
 
 ---
 
@@ -174,13 +259,56 @@ something they pinned to a specific time will not actually happen at that time.
 
 **a. What you tested**
 
-- What behaviors did you test?
-- Why were these tests important?
+29 tests in `tests/test_pawpal.py`, split between happy paths and edge cases.
+
+The happy paths cover the behaviours the app is actually for: a task's completion status
+changes when it is ticked off, adding a task to a pet grows that pet's list, the owner can
+reach tasks across every pet, high priority is scheduled before low, work that does not fit
+the budget is skipped with a reason, tasks come back in clock order however they were
+entered, filters narrow by pet and status, and completing a daily or weekly task queues the
+right next date.
+
+The edge cases are the ones I thought were most likely to break something quietly:
+
+- An owner with no pets, and a pet with no tasks, so the empty state plans cleanly instead
+  of raising.
+- A zero minute budget, where everything should be skipped and still explained.
+- A task requested so late it cannot finish before the cutoff, which should be deferred
+  rather than allowed to overrun the day.
+- Three tasks pinned to one time, not two, to confirm conflict detection is genuinely
+  pairwise.
+- Recurrence across month and year boundaries, because `31 December + 1 day` is exactly the
+  kind of arithmetic that gets hand-rolled and gets wrong.
+- Two tasks that merely touch, one ending as the next begins, which must *not* be reported
+  as a conflict.
+- Completing the same task twice.
+- Generating a plan twice in a row, to prove planning does not mutate the pet's own tasks.
+
+These mattered because most of them are about the system being *quietly* wrong rather than
+crashing. A scheduler that raises an exception gets fixed immediately. A scheduler that
+drops one task, or queues two copies of tomorrow's walk, gets trusted and then quietly
+fails a pet.
 
 **b. Confidence**
 
-- How confident are you that your scheduler works correctly?
-- What edge cases would you test next if you had more time?
+**Four out of five.** The scheduling logic itself I trust: every branch that decides what
+gets scheduled, what gets dropped and when a task repeats has a test behind it, and the
+process of writing those tests found three real bugs rather than confirming what I already
+believed.
+
+The missing star is for what the suite does not reach. `app.py` has no committed automated
+tests, so the UI was verified with throwaway scripts rather than something that runs every
+time. Recurrence is only tested one step forward, never over a simulated week, so I have
+not proven that completing a task every day for seven days behaves. And nothing covers a
+plan crossing midnight, which is currently unreachable because of the day cutoff rather
+than proven safe, since `to_clock` wraps with `% 24` in a way I have not had to think hard
+about.
+
+With more time, the next tests I would write are: a committed `tests/test_app.py` using
+Streamlit's `AppTest` harness so the UI is covered properly; a multi-day simulation that
+completes every task for a week and checks nothing accumulates or disappears; a blocked
+window that swallows the entire day; and a task longer than the owner's whole budget, to
+confirm it is reported as impossible rather than deferred forever.
 
 ---
 
@@ -188,12 +316,57 @@ something they pinned to a specific time will not actually happen at that time.
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+The part I am most satisfied with is that the scheduler explains itself. `explain_plan`
+prints why each task sits where it does and why anything dropped was dropped, and every
+`PlannedItem` carries the reason it landed where it did rather than that reasoning living
+only in my head while I wrote the loop.
+
+That turned out to be worth more than I expected. It was never only a feature for the user.
+Because the plan explains itself, wrong behaviour announces itself in the output instead of
+hiding in a plausible looking list of times. The recurrence bug, where tomorrow's walk
+appeared in today's plan, was visible the moment I read the demo output and saw a task I
+had just completed scheduled at 07:30. A bare list of times would have looked perfectly
+reasonable.
+
+The second thing that went well was separating `Task` from `PlannedItem`. Keeping the
+definition of a task apart from one placement of it removed a whole category of bug, and it
+is the change I am most confident was the right call, partly because I had argued against it
+first.
 
 **b. What you would improve**
 
-- If you had another iteration, what would you improve or redesign?
+The scheduler places every pinned task before every flexible one, so a low priority task
+pinned to 18:00 drags a medium priority flexible task out to 18:20, even when there was an
+empty hour at 09:00 it could have filled. The fix is gap filling: track the free windows
+between pinned tasks and fit flexible work into them, best fit first. I left it out because
+it needs real interval bookkeeping and I would rather ship a simple scheduler I can explain
+than a clever one I cannot test. It is the first thing I would build next.
+
+I would also redesign how time is represented. `"HH:MM"` strings are easy to display and
+awkward to compute with, which is why `to_minutes` and `to_clock` exist at all and why
+`to_clock` wraps at 24 hours in a way that has not been examined properly. Using
+`datetime.time`, or minutes since midnight throughout with formatting only at the edges,
+would remove that whole class of problem.
+
+Finally I would commit the UI tests. They caught two of the three bugs in this project and
+they currently do not exist anywhere in the repository.
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+The AI was dramatically better at finding problems in work that already existed than at
+deciding what to build. Asking "what is wrong with this skeleton" produced six real issues.
+Asking for code to be written produced things like a one-line sort that crashes on `None`,
+or a Streamlit selectbox that silently throws away every task the user adds. Both of those
+looked completely reasonable, and neither announced that it was wrong.
+
+What that taught me about being the lead architect is that my job was not writing code, and
+it was not reviewing code either, because reading code and agreeing with it is exactly the
+failure mode. My job was deciding what counted as correct, and then insisting that something
+actually run to prove it. Every bug in this project was found by execution, not by
+inspection. The tests, the demo script and the `AppTest` harness were not chores at the end;
+they were the only thing standing between confident-looking code and code that works.
+
+The related lesson is that taste still has to come from me. The AI's version of a sort was
+shorter and more Pythonic than mine and I kept mine, because handling the empty case visibly
+was worth four extra lines. Being the architect meant being willing to choose the less
+clever option and be able to say why.

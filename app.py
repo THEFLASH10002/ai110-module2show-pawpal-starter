@@ -160,9 +160,20 @@ for pet in owner.pets:
                 pet.remove_task(task.task_id)
                 st.rerun()
 
+# A conflict is not an error, it is something the owner needs to decide about, so it is
+# shown next to the tasks themselves with the resolution spelled out rather than as a
+# bare alert they cannot act on.
 conflicts = Scheduler(owner).detect_conflicts()
-for warning in conflicts:
-    st.warning(warning, icon="⚠️")
+if conflicts:
+    st.warning(
+        f"**{len(conflicts)} time clash{'es' if len(conflicts) > 1 else ''} "
+        "between tasks you pinned to a set time.**  \n"
+        "PawPal+ will keep the earlier one where you asked and push the later one back. "
+        "If that is the wrong way round, change a time above.",
+        icon="⚠️",
+    )
+    for warning in conflicts:
+        st.caption(f"• {warning}")
 
 st.divider()
 
@@ -185,25 +196,47 @@ if st.button("Generate schedule", type="primary", use_container_width=True):
 if "plan" in st.session_state:
     planned, skipped, scheduler = st.session_state.plan
 
+    booked = sum(item.task.duration_minutes for item in planned)
+    done_col, time_col, left_col, dropped_col = st.columns(4)
+    done_col.metric("Scheduled", len(planned))
+    time_col.metric("Care time", f"{booked} min")
+    left_col.metric("Budget left", f"{owner.available_minutes - booked} min")
+    dropped_col.metric("Dropped", len(skipped))
+
     if planned:
+        # sort_by_time rather than trusting insertion order, so the table always
+        # reads top to bottom as the owner's day actually runs.
         st.table(
             [
                 {
                     "When": f"{item.start_time}–{item.end_time()}",
                     "Pet": item.pet.name,
                     "Task": item.task.title,
+                    "Mins": item.task.duration_minutes,
                     "Priority": item.task.priority,
                 }
-                for item in planned
+                for item in scheduler.sort_by_time(planned)
             ]
         )
     else:
         st.info("Nothing fits in the time available. Try raising your minutes in the sidebar.")
 
     if skipped:
-        st.warning("Not scheduled today:")
-        for item in skipped:
-            st.write(f"- **{item.pet.name}: {item.task.title}** — {item.reason}")
+        st.warning(f"{len(skipped)} task(s) did not make it into today:", icon="📋")
+        st.table(
+            [
+                {
+                    "Pet": item.pet.name,
+                    "Task": item.task.title,
+                    "Mins": item.task.duration_minutes,
+                    "Priority": item.task.priority,
+                    "Why not": item.reason,
+                }
+                for item in skipped
+            ]
+        )
+    elif planned:
+        st.success("Everything due today fits in the time you have.", icon="✅")
 
     with st.expander("Why this plan?"):
         st.text(scheduler.explain_plan(planned, skipped))
